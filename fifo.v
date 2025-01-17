@@ -19,10 +19,10 @@ module  fifo
         output                  prog_full
      );
 
-   parameter       EXTENT       = DWO/DWI ;
-   parameter       EXTENT_BIT   = AWI-AWO ;
-   parameter       SHRINK       = DWI/DWO ;
-   parameter       SHRINK_BIT   = AWO-AWI ;
+   localparam       EXTENT       = DWO/DWI ;
+   localparam       EXTENT_BIT   = AWI-AWO ;
+   localparam       SHRINK       = DWI/DWO ;
+   localparam       SHRINK_BIT   = AWO-AWI ;
 
    //======================= push counter =====================
    wire [AWI-1:0]               waddr ;

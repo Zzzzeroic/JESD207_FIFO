@@ -35,6 +35,7 @@ always @(negedge fclk or negedge rstn) begin
         tx_nrx      <= 'd1;
         wr_en       <= 'b0;
         rd_en       <= 'b0;
+        jesd_en     <= 'b0;
     end
     else begin
         case (currState)
