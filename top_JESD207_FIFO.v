@@ -4,10 +4,8 @@
 `define STATE_END   3'b011
 module top_JESD207_FIFO
 #(
-    parameter AWI = 7,
-    parameter AWO = 7,
-    parameter DWI = 12,
-    parameter DWO = 12,
+    parameter ADDR_WID = 7,
+    parameter DATA_WID = 12,
     parameter PROG_DEPTH = 64
 )
 (
@@ -16,18 +14,35 @@ module top_JESD207_FIFO
     output reg tx_nrx,
     output reg jesd_en,
     input rstn,
-    input fclk,
-    input [DWI-1:0] wdata,
+    output fclk,
+    input [DATA_WID-1:0] wdata,
     input mclk,
-    output [DWO-1:0] rdata,
+    output [DATA_WID-1:0] rdata,
     output wfull,
     output rempty,
-    output prog_full
+    output prog_full,
+    
+    input sysclk,
+
+    input i_uart_rx,
+    output o_uart_tx,
+    
+    //SPI param
+    output o_SCLK,
+    output o_MOSI,
+    input  i_MISO,
+    output o_SEN
+);
+
+pllClk_66M_30p72M upll(
+    .clk_in1(sysclk),
+    .clk_out1(fclk)
 );
 
 reg [2:0] currState;
 reg [1:0] cnt;
 reg wr_en, rd_en;
+
 always @(negedge fclk or negedge rstn) begin
     if (~rstn) begin
         currState   <= `STATE_BEGIN;
@@ -40,6 +55,7 @@ always @(negedge fclk or negedge rstn) begin
     else begin
         case (currState)
             `STATE_IDLE: begin
+                jesd_en <= 1'b0;
                 if(proc_start) begin
                     currState <= `STATE_BEGIN;
                 end
@@ -74,30 +90,71 @@ always @(negedge fclk or negedge rstn) begin
             end
             `STATE_END: begin
                 currState <= `STATE_IDLE;
+                jesd_en   <= 1'b1;
             end
         endcase
     end
 end
 
+wire [ADDR_WID-1:0] waddr, raddr;
+wire [ADDR_WID-1:0] debug_addr;
+wire [DATA_WID-1:0] debug_data;
+
 fifo #(
-    .AWI(AWI),
-    .AWO(AWO),
-    .DWI(DWI),
-    .DWO(DWO),
+    .ADDR_WID(ADDR_WID),
+    .DATA_WID(DATA_WID),
     .PROG_DEPTH(PROG_DEPTH)
 )
 u_data_buf2
 (
     .rstn(rstn),
-    .wdata(wdata),
+    .waddr(waddr),
     .wclk(mclk),
     .winc(wr_en),
-    .rdata(rdata),
+    .raddr(raddr),
     .rclk(fclk),
     .rinc(rd_en),
     .rempty(rempty),
     .wfull(wfull),
     .prog_full(prog_full)
 );
+wire debug_ram_en;
+jt201D_spi_top #(
+    .RAM_ADDR_WID(ADDR_WID),
+    .RAM_DATA_WID(DATA_WID)
+) u_spi_uart(
+    .i_clk_sys(sysclk),
+    .i_rst_n(rstn),
+    .i_uart_rx(i_uart_rx),
+    .o_uart_tx(o_uart_tx),
+    .o_ld_parity(),
+    .o_ld_debug(),
+    .o_SCLK(o_SCLK),
+    .o_MOSI(o_MOSI),
+    .i_MISO(i_MISO),
+    .o_SEN(o_SEN),
+    .debug_ram_en(debug_ram_en),
+    .debug_addr(debug_addr),
+    .debug_data(debug_data)
+);
+
+ramdp
+#(  .ADDR_WID     (ADDR_WID),
+    .DATA_WID     (DATA_WID))
+u_ramdp
+(
+    .CLK_WR             (mclk),
+    .WR_EN              (wr_en & !wfull),
+    .ADDR_WR            (waddr),
+    .D                  (wdata[DATA_WID-1:0]),
+    .CLK_RD             (fclk),
+    .RD_EN              (rd_en & !rempty),
+    .ADDR_RD            (raddr),
+    .Q                  (rdata[DATA_WID-1:0]),
+    .CLK_DEBUG          (sysclk),
+    .DEBUG_EN           (debug_ram_en),
+    .ADDR_DEBUG         (debug_addr),
+    .DATA_DEBUG         (debug_data)
+    );
 
 endmodule

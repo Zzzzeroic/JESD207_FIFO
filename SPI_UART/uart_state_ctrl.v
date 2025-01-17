@@ -230,21 +230,25 @@ module uart_state_ctrl
                 else o_data_valid <= 1'b0;
             end
             RAM_DEBUG: begin
-                if(debug_data_num_cnt<3'd4) begin
-                    o_data_tx <= debug_data_xxxx_bit; 
-                    debug_data_num_cnt <= debug_data_num_cnt + 1'b1;
-                end else begin
-                    if(debug_cnt_switch_line<3) begin
-                        o_data_tx <= `CHAR_COMMA;
-                        debug_cnt_switch_line = debug_cnt_switch_line + 1'b1;
+                if(i_uart_idle && o_data_valid==1'b0) begin
+                    o_data_valid = 1'b1;
+                    if(debug_data_num_cnt<3'd4) begin
+                        o_data_tx <= debug_data_xxxx_bit; 
+                        debug_data_num_cnt <= debug_data_num_cnt + 1'b1;
                     end else begin
-                        o_data_tx <= `CHAR_SWITCH_LINE;
-                        debug_cnt_switch_line = 'd0;
+                        if(debug_cnt_switch_line<3) begin
+                            o_data_tx <= `CHAR_COMMA;
+                            debug_cnt_switch_line = debug_cnt_switch_line + 1'b1;
+                        end else begin
+                            o_data_tx <= `CHAR_SWITCH_LINE;
+                            debug_cnt_switch_line = 'd0;
+                        end
+                        debug_data_num_cnt <= 'd0;
+                        debug_addr <= debug_addr + 1'b1;
                     end
-                    debug_data_num_cnt <= 'd0;
-                    debug_addr <= debug_addr + 1'b1;
+                    if(debug_addr=={RAM_ADDR_WID{1'b1}}) debug_ram_en <= 1'b0;
                 end
-                if(debug_addr=={RAM_ADDR_WID{1'b1}}) debug_ram_en <= 1'b0;
+                else o_data_valid = 1'b0;
             end
             DONE: begin
                 o_ld_debug <= 7'b111_1111;

@@ -1,33 +1,31 @@
 module  fifo
-    #(  parameter       AWI        = 7 ,
-        parameter       AWO        = 5 ,
-        parameter       DWI        = 16 ,
-        parameter       DWO        = 64 ,
+    #(  parameter       ADDR_WID        = 7 ,
+        parameter       DATA_WID        = 16 ,
         parameter       PROG_DEPTH = 64) //programmable full
     (
         input                   rstn,
         input                   wclk,
         input                   winc,
-        input [DWI-1: 0]        wdata,
+        output [ADDR_WID-1: 0]  waddr,
 
         input                   rclk,
         input                   rinc,
-        output [DWO-1 : 0]      rdata,
+        output [ADDR_WID-1 : 0] raddr,
 
         output                  wfull,
         output                  rempty,
         output                  prog_full
      );
 
-   localparam       EXTENT       = DWO/DWI ;
-   localparam       EXTENT_BIT   = AWI-AWO ;
-   localparam       SHRINK       = DWI/DWO ;
-   localparam       SHRINK_BIT   = AWO-AWI ;
+   localparam       EXTENT       = DATA_WID/DATA_WID ;
+   localparam       EXTENT_BIT   = ADDR_WID-ADDR_WID ;
+   localparam       SHRINK       = DATA_WID/DATA_WID ;
+   localparam       SHRINK_BIT   = ADDR_WID-ADDR_WID ;
 
    //======================= push counter =====================
-   wire [AWI-1:0]               waddr ;
+
    wire                         wover_flag ;  //counter overflow
-   ccnt         #(.W(AWI+1))             //128
+   ccnt         #(.W(ADDR_WID+1))             //128
    u_push_cnt(
               .rstn           (rstn),
               .clk            (wclk),
@@ -36,9 +34,9 @@ module  fifo
               );
 
    //========================== pop counter ==================================
-   wire [AWO-1:0]            raddr ;
+
    wire                      rover_flag ;   //counter overflow
-   ccnt         #(.W(AWO+1))         //128
+   ccnt         #(.W(ADDR_WID+1))         //128
    u_pop_cnt(
              .rstn           (rstn),
              .clk            (rclk),
@@ -48,15 +46,13 @@ module  fifo
 
    //==============================================
    //small in and big out
-generate
-   if (DWO >= DWI) begin : EXTENT_WIDTH
    //=====================================
 
       //gray code
-      wire [AWI:0] wptr    = ({wover_flag, waddr}>>1) ^ ({wover_flag, waddr}) ;
+      wire [ADDR_WID:0] wptr    = ({wover_flag, waddr}>>1) ^ ({wover_flag, waddr}) ;
       //sync wr ptr
-      reg [AWI:0]  rq2_wptr_r0 ;
-      reg [AWI:0]  rq2_wptr_r1 ;
+      reg [ADDR_WID:0]  rq2_wptr_r0 ;
+      reg [ADDR_WID:0]  rq2_wptr_r1 ;
       always @(posedge rclk or negedge rstn) begin
          if (!rstn) begin
             rq2_wptr_r0     <= 'b0 ;
@@ -69,11 +65,11 @@ generate
       end
 
       //gray code
-      wire [AWI-1:0] raddr_ex = raddr << EXTENT_BIT ;
-      wire [AWI:0]   rptr     = ({rover_flag, raddr_ex}>>1) ^ ({rover_flag, raddr_ex}) ;
+      wire [ADDR_WID-1:0] raddr_ex = raddr << EXTENT_BIT ;
+      wire [ADDR_WID:0]   rptr     = ({rover_flag, raddr_ex}>>1) ^ ({rover_flag, raddr_ex}) ;
       //sync rd ptr
-      reg [AWI:0]    wq2_rptr_r0 ;
-      reg [AWI:0]    wq2_rptr_r1 ;
+      reg [ADDR_WID:0]    wq2_rptr_r0 ;
+      reg [ADDR_WID:0]    wq2_rptr_r1 ;
       always @(posedge wclk or negedge rstn) begin
          if (!rstn) begin
             wq2_rptr_r0     <= 'b0 ;
@@ -86,50 +82,30 @@ generate
       end
 
       //decode
-      reg [AWI:0]       wq2_rptr_decode ;
-      reg [AWI:0]       rq2_wptr_decode ;
+      reg [ADDR_WID:0]       wq2_rptr_decode ;
+      reg [ADDR_WID:0]       rq2_wptr_decode ;
       integer           i ;
       always @(*) begin
-         wq2_rptr_decode[AWI] = wq2_rptr_r1[AWI];
-         for (i=AWI-1; i>=0; i=i-1) begin
+         wq2_rptr_decode[ADDR_WID] = wq2_rptr_r1[ADDR_WID];
+         for (i=ADDR_WID-1; i>=0; i=i-1) begin
             wq2_rptr_decode[i] = wq2_rptr_decode[i+1] ^ wq2_rptr_r1[i] ;
          end
       end
       always @(*) begin
-         rq2_wptr_decode[AWI] = rq2_wptr_r1[AWI];
-         for (i=AWI-1; i>=0; i=i-1) begin
+         rq2_wptr_decode[ADDR_WID] = rq2_wptr_r1[ADDR_WID];
+         for (i=ADDR_WID-1; i>=0; i=i-1) begin
             rq2_wptr_decode[i] = rq2_wptr_decode[i+1] ^ rq2_wptr_r1[i] ;
          end
       end
 
 
-      assign rempty    = (rover_flag == rq2_wptr_decode[AWI]) &&
-                         (raddr_ex >= rq2_wptr_decode[AWI-1:0]);
-      assign wfull     = (wover_flag != wq2_rptr_decode[AWI]) &&
-                         (waddr >= wq2_rptr_decode[AWI-1:0]) ;
-      assign prog_full  = (wover_flag == wq2_rptr_decode[AWI]) ?
-                          waddr - wq2_rptr_decode[AWI-1:0] >= PROG_DEPTH-1 :
-                          waddr + (1<<AWI) - wq2_rptr_decode[AWI-1:0] >= PROG_DEPTH-1;
-
-      ramdp
-        #( .AWI     (AWI),
-           .AWO     (AWO),
-           .DWI     (DWI),
-           .DWO     (DWO))
-      u_ramdp
-        (
-         .CLK_WR          (wclk),
-         .WR_EN           (winc & !wfull),
-         .ADDR_WR         (waddr),
-         .D               (wdata[DWI-1:0]),
-         .CLK_RD          (rclk),
-         .RD_EN           (rinc & !rempty),
-         .ADDR_RD         (raddr),
-         .Q               (rdata[DWO-1:0])
-         );
-
-   end
- endgenerate
+      assign rempty    = (rover_flag == rq2_wptr_decode[ADDR_WID]) &&
+                         (raddr_ex >= rq2_wptr_decode[ADDR_WID-1:0]);
+      assign wfull     = (wover_flag != wq2_rptr_decode[ADDR_WID]) &&
+                         (waddr >= wq2_rptr_decode[ADDR_WID-1:0]) ;
+      assign prog_full  = (wover_flag == wq2_rptr_decode[ADDR_WID]) ?
+                          waddr - wq2_rptr_decode[ADDR_WID-1:0] >= PROG_DEPTH-1 :
+                          waddr + (1<<ADDR_WID) - wq2_rptr_decode[ADDR_WID-1:0] >= PROG_DEPTH-1;
 
 
 endmodule
